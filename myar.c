@@ -16,7 +16,7 @@ struct meta {
 
 typedef struct ar_hdr header;
 
-int fill_ar_hdr(char *filename, struct ar_hdr *hdr);
+int fill_ar_hdr(char *file, struct ar_hdr *hdr);
 
 int fill_meta(struct ar_hdr hdr, struct meta *meta);
 
@@ -24,26 +24,72 @@ void listFiles(int fd);
 
 void appendFiles(int fd, char **files, int num);
 
+int fill_ar_hdr(char *file_header, struct ar_hdr *hdr) {
+
+
+}
+
+
+
+
+// Option q
+// just a single file
 int append(int fd, char *file) {
+
+    header *file_header = malloc(sizeof(header));
+    char filename[16];
+    strcpy(filename, file);
 
     // if the file cannot be opened
     if (open(file, O_RDONLY) == -1) {
         printf("myar: %s: no such file or directory", file);
+        free(file_header);
+        exit(-1);
+    } else if (stat(file, (struct stat*) malloc(sizeof(struct stat))) == -1) {
+        // if the file info cannot be read
+        printf("myar: %s: cannot read the file information", file);
+        free(file_header);
         exit(-1);
     }
 
-    // if
-}
+    struct stat* information = (struct stat*) malloc(sizeof(struct stat));
 
+    // ar_name[16]
+    // ar_date[12]
+    // ar_uid[6]
+    // ar_gid[6]
+    // ar_mode[8]
+    // ar_size[10]
+    // ar_fmag[2]
 
-// Option q
-// Node that there can be multiple files to append
-void appendFiles(int fd, char **files, int num) {
-    int i;
-    for (i = 0; i < num; i++) {
-        append(fd, files[i]);
+    // copy and print
+    sprintf(file_header->ar_name, "%-16s", filename);
+    sprintf(file_header->ar_date, "%-12ld", information->st_mtime);
+    sprintf(file_header->ar_uid, "%-6u", information->st_uid);
+    sprintf(file_header->ar_gid, "%-6u", information->st_gid);
+    sprintf(file_header->ar_mode, "%-8o", information->st_mode);
+    sprintf(file_header->ar_size, "%-10ld", information->st_size);
+    sprintf(file_header->ar_fmag, "%-2s", ARFMAG);
+
+    write(fd, file_header, sizeof(header));
+
+    int f_block = information->st_blocks;
+    char* f_buffer[f_block];
+    int size;
+    while (read(fd, f_buffer, f_block) > 0) {
+        size = read(fd, f_buffer, f_block);
+        write(fd, f_buffer, size);
     }
+
+    if (lseek(fd, 0, SEEK_END) % 2 != 0) write(fd, "\n", 1);
+
+    free(file_header);
+    free(information);
+
+    return 1;
 }
+
+
 
 // Option t
 void listFiles(int fd) {
@@ -55,10 +101,10 @@ void listFiles(int fd) {
         int i;
         int filesize = (int) atoi(file_header->ar_size);
 
-        memset(buff, ' ', sizeof(file_header->ar_name));
         sprintf(buff, "%.*s", sizeof(file_header->ar_name) - 1, file_header->ar_name);
 
-        for (i = 15; i > 0; i--) {
+        i = 15;
+        while (i > 0) {
             if (buff[i] == '/') {
                 buff[i] = '\0';
                 break;
@@ -87,23 +133,25 @@ void printUsage() {
 int main(int argc, const char *argv[]) {
     char option;
     char *ar_file;
-    char *file;
     int fd;
 
     // exit if the command is too short
     if (argc <= 2) {
         printUsage();
-        exit(1);
+        exit(-1);
     }
 
     option = argv[1][0];
     ar_file = (char*) argv[2];
-    file = (char*) argv[3];
+
+
+    char *single_file;
+    single_file = (char *)argv[3];
 
     // check if the options are valid
     if (!(option == 'q' || option == 'x' || option == 'o' || option == 't' || option == 'A' || option == 'v' || option == 'd')) {
         printUsage();
-        exit(1);
+        exit(-1);
     }
 
     // check if the AR file exists
@@ -126,7 +174,7 @@ int main(int argc, const char *argv[]) {
                 // other cases 1: file does not exist
                 fd = open(ar_file, O_RDWR | O_CREAT, 0666);
                 printf("myar: creating: %s\n", ar_file);
-                write(ar_file, ARMAG, 8);
+                write(fd, ARMAG, 8);
             } else {
                 // other case 2:
                 printf("myar: %s: No such file or directory\n", ar_file);
@@ -140,6 +188,7 @@ int main(int argc, const char *argv[]) {
             listFiles(fd);
             break;
 
-
+        case ('q'):
+            append(fd, single_file);
     }
 }
