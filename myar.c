@@ -6,6 +6,7 @@
 # include <sys/types.h>
 # include <sys/stat.h>
 # include <fcntl.h>
+# include <utime.h>
 
 struct Meta {
     char name[16]; // room for null
@@ -94,7 +95,23 @@ int extract(int fd, char *file) {
         }
     }
 
-    // fix the time stamp
+    // fix the timestamp
+    struct utimbuf* timestamp_buf = (struct utimbuf*) malloc(sizeof(struct utimbuf));
+    timestamp_buf->modtime = meta.mtime;
+    timestamp_buf->actime = meta.mtime;
+
+    // if there is an error
+    if (utime(file, timestamp_buf) == -1) {
+        printf("Error occurred in updating the timestamp");
+        exit(-1);
+    }
+    lseek(new_file_fd, SARMAG, SEEK_SET);
+
+    // free variables
+    free(timestamp_buf);
+    free(file_header);
+    free(information);
+
 }
 
 
