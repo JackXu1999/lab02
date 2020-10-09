@@ -7,7 +7,7 @@
 # include <sys/stat.h>
 # include <fcntl.h>
 
-struct meta {
+struct Meta {
     char name[16]; // room for null
     int mode;
     int size;
@@ -16,20 +16,86 @@ struct meta {
 
 typedef struct ar_hdr header;
 
-int fill_ar_hdr(char *file, struct ar_hdr *hdr);
+int fill_ar_hdr(header *file_header, int fd, struct stat* information, char filename[]);
 
 int fill_meta(struct ar_hdr hdr, struct meta *meta);
 
 void listFiles(int fd);
 
-void appendFiles(int fd, char **files, int num);
+int extract(int fd, char *file);
 
-int fill_ar_hdr(char *file_header, struct ar_hdr *hdr) {
+int append(int fd, char *file);
 
+int fill_ar_hdr(header *file_header, int fd, struct stat* information, char filename[]) {
+    // ar_name[16]
+    // ar_date[12]
+    // ar_uid[6]
+    // ar_gid[6]
+    // ar_mode[8]
+    // ar_size[10]
+    // ar_fmag[2]
 
+    // copy and print
+
+    sprintf(file_header->ar_name, "%-16s", filename);
+    sprintf(file_header->ar_date, "%-12ld", information->st_mtime);
+    sprintf(file_header->ar_uid, "%-6u", information->st_uid);
+    sprintf(file_header->ar_gid, "%-6u", information->st_gid);
+    sprintf(file_header->ar_mode, "%-8o", information->st_mode);
+    sprintf(file_header->ar_size, "%-10ld", information->st_size);
+    sprintf(file_header->ar_fmag, "%-2s", ARFMAG);
+
+    write(fd, file_header, sizeof(header));
 }
 
+// Option x
+// just a single file
+int extract(int fd, char *file) {
+    header *file_header = malloc(sizeof(header));
 
+    struct Meta meta;
+    // read the file
+    while (read(fd, file_header, sizeof(struct header)) == sizeof(struct header)) {
+
+        int i = 15;
+        while (i >= 0) {
+            if (file_header->ar_name[i] == '/') {
+                file_header->ar_name[i] = '\0';
+                break;
+            }
+        }
+
+        // if we cannot find the ar file
+        if (strcmp(file, file_header->ar_name) != 0) {
+            printf("myar: %s: No such file or directory", file);
+            exit(-1);
+        }
+
+    }
+
+    // copying and formatting variables into meta
+    meta.mode = atoi(file_header->ar_mode);
+    meta.name = file_header->ar_name;
+    meta.size = atoi(file_header->ar_size);
+    meta.mtime = atoi(file_header->ar_date);
+
+    int new_file_fd;
+    // create the file or truncate it if it already exits
+    new_file_fd = creat(file, meta.mode);
+    struct stat *information = malloc(sizeof(struct stat));
+    fstat(new_file_fd, information);
+
+    // write the content
+    while (meta.size > 0) {
+        char* buf[meta.size];
+        if (read(new_file_fd, buf, meta.size) > 0) {
+            int temp = read(ew_file_fd, buf, meta.size);
+            write(new_file_fd, buf, temp);
+        }
+    }
+
+    // fix the time stamp
+}
 
 
 // Option q
@@ -54,24 +120,8 @@ int append(int fd, char *file) {
 
     struct stat* information = (struct stat*) malloc(sizeof(struct stat));
 
-    // ar_name[16]
-    // ar_date[12]
-    // ar_uid[6]
-    // ar_gid[6]
-    // ar_mode[8]
-    // ar_size[10]
-    // ar_fmag[2]
-
-    // copy and print
-    sprintf(file_header->ar_name, "%-16s", filename);
-    sprintf(file_header->ar_date, "%-12ld", information->st_mtime);
-    sprintf(file_header->ar_uid, "%-6u", information->st_uid);
-    sprintf(file_header->ar_gid, "%-6u", information->st_gid);
-    sprintf(file_header->ar_mode, "%-8o", information->st_mode);
-    sprintf(file_header->ar_size, "%-10ld", information->st_size);
-    sprintf(file_header->ar_fmag, "%-2s", ARFMAG);
-
-    write(fd, file_header, sizeof(header));
+    // write the header
+    fill_ar_hdr(file_header, fd, information, filename);
 
     int f_block = information->st_blocks;
     char* f_buffer[f_block];
@@ -190,5 +240,8 @@ int main(int argc, const char *argv[]) {
 
         case ('q'):
             append(fd, single_file);
+
+        case ('x'):
+            extract(fd, single_file);
     }
 }
