@@ -10,7 +10,7 @@
 
 struct Meta {
     char name[16]; // room for null
-    int mode;
+    mode_t mode;
     int size;
     time_t mtime; // a time_t is a long
 };
@@ -53,65 +53,83 @@ int fill_ar_hdr(header *file_header, int fd, struct stat* information, char file
 // just a single file
 int extract(int fd, char *file) {
     header *file_header = malloc(sizeof(header));
-
+    int flag = 0;
     struct Meta meta;
+    int filesize;
     // read the file
-    while (read(fd, file_header, sizeof(struct header)) == sizeof(struct header)) {
+    while (read(fd, file_header, sizeof(header)) == sizeof(header)) {
 
-        int i = 15;
+        int i = 16;
         while (i >= 0) {
             if (file_header->ar_name[i] == '/') {
                 file_header->ar_name[i] = '\0';
                 break;
             }
+            i--;
         }
-
+        filesize = (int) atoi(file_header->ar_size);
         // if we cannot find the ar file
-        if (strcmp(file, file_header->ar_name) != 0) {
-            printf("myar: %s: No such file or directory", file);
-            exit(-1);
+        if (strncmp(file, file_header->ar_name, strlen(file)) == 0) {
+            flag = 1;
+            break;
+        } else {
+            if (filesize % 2 != 0) filesize = filesize + 1;
+            lseek(fd, filesize, SEEK_CUR);
         }
 
     }
 
+    if (flag == 0) {
+        printf("myar: %s: No such file or directory\n", file);
+        exit(-1);
+    }
+
     // copying and formatting variables into meta
-    meta.mode = atoi(file_header->ar_mode);
-    meta.name = file_header->ar_name;
-    meta.size = atoi(file_header->ar_size);
-    meta.mtime = atoi(file_header->ar_date);
+    char *ptr;
+    meta.mode = strtol(file_header->ar_mode, &ptr,8);
+//    strcpy(meta.name, file_header->ar_name);
+    meta.size = (int) atoi(file_header->ar_size);
+    meta.mtime = (time_t) atoll(file_header->ar_date);
 
     int new_file_fd;
     // create the file or truncate it if it already exits
     new_file_fd = creat(file, meta.mode);
     struct stat *information = malloc(sizeof(struct stat));
-    fstat(new_file_fd, information);
+    fstat(fd, information);
+    int buf_size = information->st_blksize;
+    int temp_size = meta.size;
 
     // write the content
-    while (meta.size > 0) {
-        char* buf[meta.size];
-        if (read(new_file_fd, buf, meta.size) > 0) {
-            int temp = read(ew_file_fd, buf, meta.size);
+    while (temp_size > 0) {
+        // the buffer size has to be smaller
+        if (temp_size < buf_size) {
+            buf_size = temp_size;
+        }
+        char* buf[buf_size];
+        if (read(fd, buf, buf_size) > 0) {
+            int temp = read(new_file_fd, buf, buf_size);
             write(new_file_fd, buf, temp);
         }
+        temp_size -= buf_size;
     }
 
     // fix the timestamp
     struct utimbuf* timestamp_buf = (struct utimbuf*) malloc(sizeof(struct utimbuf));
-    timestamp_buf->modtime = meta.mtime;
-    timestamp_buf->actime = meta.mtime;
+    timestamp_buf->modtime = (time_t) meta.mtime;
+    timestamp_buf->actime = (time_t) meta.mtime;
 
     // if there is an error
     if (utime(file, timestamp_buf) == -1) {
-        printf("Error occurred in updating the timestamp");
+        printf("Error occurred in updating the timestamp\n");
         exit(-1);
     }
-    lseek(new_file_fd, SARMAG, SEEK_SET);
+    lseek(fd, SARMAG, SEEK_SET);
 
     // free variables
     free(timestamp_buf);
     free(file_header);
     free(information);
-
+    close(new_file_fd);
 }
 
 
@@ -125,12 +143,12 @@ int append(int fd, char *file) {
 
     // if the file cannot be opened
     if (open(file, O_RDONLY) == -1) {
-        printf("myar: %s: no such file or directory", file);
+        printf("myar: %s: no such file or directory\n", file);
         free(file_header);
         exit(-1);
     } else if (stat(file, (struct stat*) malloc(sizeof(struct stat))) == -1) {
         // if the file info cannot be read
-        printf("myar: %s: cannot read the file information", file);
+        printf("myar: %s: cannot read the file information\n", file);
         free(file_header);
         exit(-1);
     }
@@ -257,8 +275,12 @@ int main(int argc, const char *argv[]) {
 
         case ('q'):
             append(fd, single_file);
+            break;
 
         case ('x'):
             extract(fd, single_file);
+            break;
     }
+
+    close(fd);
 }
