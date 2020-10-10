@@ -112,14 +112,13 @@ int extract(int fd, char *file) {
     int buf_size = information->st_blksize;
     int temp;
 
-    // write the content
-    while (file_size > 0) {
-        // the buffer size has to be smaller
-        if (file_size < buf_size) {
-            buf_size = file_size;
-        }
+    struct utimbuf* timestamp_buf = (struct utimbuf*) malloc(sizeof(struct utimbuf));
+    timestamp_buf->modtime = (time_t) meta.mtime;
+    timestamp_buf->actime = (time_t) meta.mtime;
+    char* buf[buf_size];
 
-        char* buf[buf_size];
+    // write the content
+    while (file_size > buf_size) {
         if ((temp = read(fd, buf, buf_size)) > 0) {
             if (write(new_file_fd, buf, temp) != temp) {
                 printf("myar: writing error occurred\n");
@@ -130,11 +129,30 @@ int extract(int fd, char *file) {
         // we meed to decrease the size
         file_size -= buf_size;
     }
+    buf_size = file_size;
+    read(fd, buf, buf_size);
+
+
+//    while (file_size > 0) {
+//        // the buffer size has to be smaller
+//        if (file_size < buf_size) {
+//            buf_size = file_size;
+//        }
+//
+//        char* buf[buf_size];
+//        if ((temp = read(fd, buf, buf_size)) > 0) {
+//            if (write(new_file_fd, buf, temp) != temp) {
+//                printf("myar: writing error occurred\n");
+//                exit(-1);
+//            }
+//        }
+//
+//        // we meed to decrease the size
+//        file_size -= buf_size;
+//    }
 
     // fix the timestamp
-    struct utimbuf* timestamp_buf = (struct utimbuf*) malloc(sizeof(struct utimbuf));
-    timestamp_buf->modtime = (time_t) meta.mtime;
-    timestamp_buf->actime = (time_t) meta.mtime;
+    utime(file, timestamp_buf);
 
     // if there is an error
     lseek(fd, SARMAG, SEEK_SET);
