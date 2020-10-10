@@ -19,13 +19,20 @@ typedef struct ar_hdr header;
 
 int fill_ar_hdr(header *file_header, int fd, struct stat* information, char filename[]);
 
-int fill_meta(struct ar_hdr hdr, struct meta *meta);
+int fill_meta(header *file_header, struct Meta meta);
 
 void listFiles(int fd);
 
 int extract(int fd, char *file);
 
 int append(int fd, char *file);
+
+int fill_meta(header *file_header, struct Meta meta) {
+    char *ptr;
+    meta.mode = strtol(file_header->ar_mode, &ptr,8);
+    meta.size = (int) atoi(file_header->ar_size);
+    meta.mtime = (time_t) atoll(file_header->ar_date);
+}
 
 int fill_ar_hdr(header *file_header, int fd, struct stat* information, char filename[]) {
     // ar_name[16]
@@ -35,8 +42,6 @@ int fill_ar_hdr(header *file_header, int fd, struct stat* information, char file
     // ar_mode[8]
     // ar_size[10]
     // ar_fmag[2]
-
-    // copy and print
 
     sprintf(file_header->ar_name, "%-16s", filename);
     sprintf(file_header->ar_date, "%-12ld", information->st_mtime);
@@ -49,16 +54,22 @@ int fill_ar_hdr(header *file_header, int fd, struct stat* information, char file
     write(fd, file_header, sizeof(header));
 }
 
-// Option x
+int appendAll(int fd, char *file) {
+
+}
+
+
+// Option x and o, restore timestamp
 // just a single file
 int extract(int fd, char *file) {
-    header *file_header = malloc(sizeof(header));
-    int flag = 0;
+    int flag;
     struct Meta meta;
-    int filesize;
+    int file_size;
+
+    header *file_header = malloc(sizeof(header));
     // read the file
     while (read(fd, file_header, sizeof(header)) == sizeof(header)) {
-
+        flag = 0;
         int i = 16;
         while (i >= 0) {
             if (file_header->ar_name[i] == '/') {
@@ -67,14 +78,15 @@ int extract(int fd, char *file) {
             }
             i--;
         }
-        filesize = (int) atoi(file_header->ar_size);
+
+        file_size = (int) atoi(file_header->ar_size);
         // if we cannot find the ar file
-        if (strncmp(file, file_header->ar_name, strlen(file)) == 0) {
+        if (strncmp(file, file_header->ar_name, strlen(file)) != 0) {
+            if (file_size % 2 != 0) file_size ++;
+            lseek(fd, file_size, SEEK_CUR);
+        } else {
             flag = 1;
             break;
-        } else {
-            if (filesize % 2 != 0) filesize = filesize + 1;
-            lseek(fd, filesize, SEEK_CUR);
         }
 
     }
@@ -85,32 +97,38 @@ int extract(int fd, char *file) {
     }
 
     // copying and formatting variables into meta
+    // do not use copy_meta method here
     char *ptr;
+    // mode is a long
     meta.mode = strtol(file_header->ar_mode, &ptr,8);
-//    strcpy(meta.name, file_header->ar_name);
     meta.size = (int) atoi(file_header->ar_size);
-    meta.mtime = (time_t) atoll(file_header->ar_date);
+    // mtime is long
+    meta.mtime = (time_t) atol(file_header->ar_date);
 
-    int new_file_fd;
     // create the file or truncate it if it already exits
-    new_file_fd = creat(file, meta.mode);
+    int new_file_fd = creat(file, meta.mode);
     struct stat *information = malloc(sizeof(struct stat));
     fstat(fd, information);
     int buf_size = information->st_blksize;
-    int temp_size = meta.size;
+    int temp;
 
     // write the content
-    while (temp_size > 0) {
+    while (file_size > 0) {
         // the buffer size has to be smaller
-        if (temp_size < buf_size) {
-            buf_size = temp_size;
+        if (file_size < buf_size) {
+            buf_size = file_size;
         }
+
         char* buf[buf_size];
-        if (read(fd, buf, buf_size) > 0) {
-            int temp = read(new_file_fd, buf, buf_size);
-            write(new_file_fd, buf, temp);
+        if ((temp = read(fd, buf, buf_size)) > 0) {
+            if (write(new_file_fd, buf, temp) != temp) {
+                printf("myar: writing error occurred\n");
+                exit(-1);
+            }
         }
-        temp_size -= buf_size;
+
+        // we meed to decrease the size
+        file_size -= buf_size;
     }
 
     // fix the timestamp
@@ -119,17 +137,92 @@ int extract(int fd, char *file) {
     timestamp_buf->actime = (time_t) meta.mtime;
 
     // if there is an error
-    if (utime(file, timestamp_buf) == -1) {
-        printf("Error occurred in updating the timestamp\n");
-        exit(-1);
-    }
     lseek(fd, SARMAG, SEEK_SET);
+    free(timestamp_buf);
 
     // free variables
-    free(timestamp_buf);
     free(file_header);
     free(information);
     close(new_file_fd);
+}
+
+// option o or x, do not restore the timestamp
+
+int simple(int fd, char *file) {
+    int flag;
+    struct Meta meta;
+    int file_size;
+
+    header *file_header = malloc(sizeof(header));
+    // read the file
+    while (read(fd, file_header, sizeof(header)) == sizeof(header)) {
+        flag = 0;
+        int i = 16;
+        while (i >= 0) {
+            if (file_header->ar_name[i] == '/') {
+                file_header->ar_name[i] = '\0';
+                break;
+            }
+            i--;
+        }
+        file_size = (int) atoi(file_header->ar_size);
+        // if we cannot find the ar file
+        if (strncmp(file, file_header->ar_name, strlen(file)) != 0) {
+            if (file_size % 2 != 0) file_size ++;
+            lseek(fd, file_size, SEEK_CUR);
+        } else {
+            flag = 1;
+            break;
+        }
+
+    }
+
+    if (flag == 0) {
+        printf("myar: %s: No such file or directory\n", file);
+        exit(-1);
+    }
+
+    // copying and formatting variables into meta
+    // do not use copy_meta method here
+    char *ptr;
+    // mode is a long
+    meta.mode = strtol(file_header->ar_mode, &ptr,8);
+    meta.size = (int) atoi(file_header->ar_size);
+    // mtime is long
+    meta.mtime = (time_t) atol(file_header->ar_date);
+
+    // create the file or truncate it if it already exits
+    int new_file_fd = creat(file, meta.mode);
+    struct stat *information = malloc(sizeof(struct stat));
+    fstat(fd, information);
+    int buf_size = information->st_blksize;
+    int temp;
+
+    // write the content
+    while (file_size > 0) {
+        // the buffer size has to be smaller
+        if (file_size < buf_size) {
+            buf_size = file_size;
+        }
+
+        char* buf[buf_size];
+        if ((temp = read(fd, buf, buf_size)) > 0) {
+            if (write(new_file_fd, buf, temp) != temp) {
+                printf("myar: writing error occurred\n");
+                exit(-1);
+            }
+        }
+
+        // we meed to decrease the size
+        file_size -= buf_size;
+    }
+
+    // free variables
+    free(file_header);
+    free(information);
+    close(new_file_fd);
+
+
 }
 
 
@@ -137,27 +230,28 @@ int extract(int fd, char *file) {
 // just a single file
 int append(int fd, char *file) {
 
-    header *file_header = malloc(sizeof(header));
-    char filename[16];
-    strcpy(filename, file);
-
+    struct stat* information = (struct stat*) malloc(sizeof(struct stat));
     // if the file cannot be opened
     if (open(file, O_RDONLY) == -1) {
         printf("myar: %s: no such file or directory\n", file);
-        free(file_header);
+        free(information);
         exit(-1);
-    } else if (stat(file, (struct stat*) malloc(sizeof(struct stat))) == -1) {
+    } else if (stat(file, information) == -1) {
         // if the file info cannot be read
         printf("myar: %s: cannot read the file information\n", file);
-        free(file_header);
+        free(information);
         exit(-1);
     }
 
-    struct stat* information = (struct stat*) malloc(sizeof(struct stat));
+
+    header *file_header = malloc(sizeof(header));
+    char filename[16];
+    strcpy(filename, file);
+    filename[strlen(file)] = '\0';
+    strcpy(file_header->ar_name, filename);
 
     // write the header
-    fill_ar_hdr(file_header, fd, information, filename);
-
+    fill_ar_hdr(file_header, fd, information, file);
     int f_block = information->st_blocks;
     char* f_buffer[f_block];
     int size;
@@ -222,16 +316,17 @@ int main(int argc, const char *argv[]) {
 
     // exit if the command is too short
     if (argc <= 2) {
+        printf("myar: too few arguments\n");
         printUsage();
         exit(-1);
     }
 
     option = argv[1][0];
-    ar_file = (char*) argv[2];
+    ar_file = (char*) argv[argc - 2];
 
 
     char *single_file;
-    single_file = (char *)argv[3];
+    single_file = (char *) argv[argc - 1];
 
     // check if the options are valid
     if (!(option == 'q' || option == 'x' || option == 'o' || option == 't' || option == 'A' || option == 'v' || option == 'd')) {
@@ -242,9 +337,9 @@ int main(int argc, const char *argv[]) {
     // check if the AR file exists
     if (access(ar_file, F_OK) != -1) {
 
+        fd = open(ar_file, O_RDWR | O_APPEND);
         char magic[9];
         magic[8] = '\0';
-        fd = open(ar_file, O_RDWR | O_APPEND);
         read(fd, magic, 8);
 
         if (strcmp(magic, ARMAG) != 0) {
@@ -254,7 +349,9 @@ int main(int argc, const char *argv[]) {
 
         }
 
-    } else {
+    }
+
+    if (access(ar_file, F_OK) == -1) {
             if (option == 'q' || option == 'A') {
                 // other cases 1: file does not exist
                 fd = open(ar_file, O_RDWR | O_CREAT, 0666);
@@ -278,7 +375,28 @@ int main(int argc, const char *argv[]) {
             break;
 
         case ('x'):
-            extract(fd, single_file);
+            if (argv[2][0] == 'o') {
+                extract(fd, single_file);
+                printf("updating timestamp\n");
+            } else {
+                simple(fd, single_file);
+                printf("not updating timestamp\n");
+            }
+
+            break;
+
+        case ('A'):
+            appendAll(fd, single_file);
+            break;
+
+        case ('o'):
+            if (argv[2][0] == 'x') {
+                extract(fd, single_file);
+                printf("updating timestamp\n");
+            } else {
+                simple(fd, single_file);
+                printf("not updating timestamp\n");
+            }
             break;
     }
 
