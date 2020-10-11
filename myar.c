@@ -65,11 +65,13 @@ int appendAll(int fd, char *file, int n) {
         exit(-1);
     }
 
+    // N day ago, we need to convert it into seconds
     double length_of_days = n * 86400;
     struct dirent *dir;
     char *filename;
     struct stat *info = malloc(sizeof(struct stat));
     time_t current;
+    char myar[4] = "myar";
 
     while ((dir = readdir(dp)) != NULL) {
 
@@ -79,8 +81,11 @@ int appendAll(int fd, char *file, int n) {
             stat(filename , info);
             current = time(NULL);
             if (difftime(current, info->st_mtime) >= length_of_days && (strcmp(file, dir->d_name)) != 0) {
-                append(fd, dir->d_name);
-                printf("file: %s appended\n", dir->d_name);
+                if (strncmp(dir->d_name, myar, strlen(dir->d_name)) != 0) {
+                    append(fd, dir->d_name);
+                    printf("file: %s appended\n", dir->d_name);
+                }
+
             }
         }
     }
@@ -363,6 +368,10 @@ int main(int argc, const char *argv[]) {
     }
 
     if (option == 'A') {
+        ar_file = (char*) argv[argc - 1];
+    }
+
+    if (option == 't') {
         ar_file = (char*) argv[argc - 1];
     }
 
