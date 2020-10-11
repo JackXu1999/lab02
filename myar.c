@@ -7,6 +7,8 @@
 # include <sys/stat.h>
 # include <fcntl.h>
 # include <utime.h>
+# include <dirent.h>
+# include <time.h>
 
 struct Meta {
     char name[16]; // room for null
@@ -54,8 +56,34 @@ int fill_ar_hdr(header *file_header, int fd, struct stat* information, char file
     write(fd, file_header, sizeof(header));
 }
 
-int appendAll(int fd, char *file) {
+// option A
+int appendAll(int fd, char *file, int n) {
+    DIR *dp;
+    // check if the current dir can be opened
+    if ((dp = opendir("./")) == NULL) {
+        printf("myar: cannot open current directory\n");
+        exit(-1);
+    }
 
+    double length_of_days = n * 86400;
+    struct dirent *dir;
+    char *filename;
+    struct stat *info = malloc(sizeof(struct stat));
+    time_t current;
+
+    while ((dir = readdir(dp)) != NULL) {
+
+        // if it is a regular file, and it is not the current ar file
+        if (dir->d_type == DT_REG) {
+            filename = dir->d_name;
+            stat(filename , info);
+            current = time(NULL);
+            if (difftime(current, info->st_mtime) >= length_of_days && (strcmp(file, dir->d_name)) != 0) {
+                append(fd, dir->d_name);
+                printf("file: %s appended\n", dir->d_name);
+            }
+        }
+    }
 }
 
 
@@ -132,24 +160,6 @@ int extract(int fd, char *file) {
     buf_size = file_size;
     read(fd, buf, buf_size);
 
-
-//    while (file_size > 0) {
-//        // the buffer size has to be smaller
-//        if (file_size < buf_size) {
-//            buf_size = file_size;
-//        }
-//
-//        char* buf[buf_size];
-//        if ((temp = read(fd, buf, buf_size)) > 0) {
-//            if (write(new_file_fd, buf, temp) != temp) {
-//                printf("myar: writing error occurred\n");
-//                exit(-1);
-//            }
-//        }
-//
-//        // we meed to decrease the size
-//        file_size -= buf_size;
-//    }
 
     // fix the timestamp
     utime(file, timestamp_buf);
@@ -352,6 +362,10 @@ int main(int argc, const char *argv[]) {
         exit(-1);
     }
 
+    if (option == 'A') {
+        ar_file = (char*) argv[argc - 1];
+    }
+
     // check if the AR file exists
     if (access(ar_file, F_OK) != -1) {
 
@@ -383,6 +397,8 @@ int main(int argc, const char *argv[]) {
 
     }
 
+    int number;
+
     switch (option) {
         case ('t'):
             listFiles(fd);
@@ -400,11 +416,11 @@ int main(int argc, const char *argv[]) {
                 simple(fd, single_file);
                 printf("not updating timestamp\n");
             }
-
             break;
 
         case ('A'):
-            appendAll(fd, single_file);
+            number = argv[2][0] - '0';
+            appendAll(fd, ar_file, number);
             break;
 
         case ('o'):
