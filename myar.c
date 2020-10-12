@@ -286,19 +286,19 @@ int append(int fd, char *file) {
     // write the header
     fill_ar_hdr(file_header, fd, information, file);
     int f_block = information->st_blocks;
-    char* f_buffer[f_block];
+    char f_buffer[f_block];
     int size;
-    while (read(fd, f_buffer, f_block) > 0) {
-        size = read(fd, f_buffer, f_block);
-        write(fd, f_buffer, size);
-    }
+    int new_fd = open(file, O_RDONLY);
 
-    if (lseek(fd, 0, SEEK_END) % 2 != 0) write(fd, "\n", 1);
+    // write the content
+    while ((size = read(new_fd, f_buffer, f_block)) > 0) {
+        write(fd, f_buffer, size);
+        if ((lseek(fd, 0, SEEK_END) % 2) != 0) write(fd, "\n", 1);
+    }
 
     free(file_header);
     free(information);
 
-    return 1;
 }
 
 
